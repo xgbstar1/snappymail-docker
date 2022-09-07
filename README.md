@@ -26,6 +26,9 @@ docker run -it \
 
 #### Longer
 Here's a sample bash script to get this up and running.
+For details on the peripheral files, such as the php config and Apache configuration, see the comment at the following URI since it explains these and provides sample config even though it a locally-built Docker image since it predates this repo's creation.
+https://github.com/the-djmaze/snappymail/issues/444 
+
 ```
 #!/bin/bash
 
@@ -68,6 +71,4 @@ rm app.min.css
 popd
 ```
 
-#### Even longer
-See the comment at the following URI. Although this comment predates this repo, the surrounding file structure, e.g. certificates and php config, apply. 
-https://github.com/the-djmaze/snappymail/issues/444 
+
