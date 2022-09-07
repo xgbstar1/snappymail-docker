@@ -1,14 +1,14 @@
 # snappymail-docker
 > Docker image, built twice daily for snappymail
 
-*Why?*
+### Why?
 The motivation for this repo is to demonstrate and have a basic automated build available for snappymail. As a bonus, the resultant artifact is packaged as a docker container image and published to Dockerhub for convenience.  
   
 One practical reason why it's helpful to have this around is that, at this time, snappymail is released every so often, but awesome commits land more frequently, and this repo helps bridge that gap by providing an uptodate build at a frequency of twice a day.  Additional information on folks asking for this or similar solutions is availble here [https://github.com/the-djmaze/snappymail/issues/44#issuecomment-1237062030](the-djmaze/snappymail/issues/44).
 
-*How to use it?*
+### How to use it?
 
-*Quick*
+#### Quick
 ```
 docker run -it \
 	-d \
@@ -24,7 +24,7 @@ docker run -it \
 	xgbstar1/snappymail-docker:main
 ```
 
-*Longer*
+#### Longer
 Here's a sample bash script to get this up and running.
 ```
 #!/bin/bash
@@ -68,6 +68,6 @@ rm app.min.css
 popd
 ```
 
-*Even longer*
+#### Even longer
 See the comment at the following URI. Although this comment predates this repo, the surrounding file structure, e.g. certificates and php config, apply. 
 https://github.com/the-djmaze/snappymail/issues/444 
