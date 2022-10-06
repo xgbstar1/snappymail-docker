@@ -1,6 +1,8 @@
 # snappymail-docker
 > Docker image, built twice daily for snappymail
 
+Builds the latest tag and the current trunk.
+
 ### Why?
 The motivation for this repo is to demonstrate and have a basic automated build available for snappymail. As a bonus, the resultant artifact is packaged as a docker container image and published to Dockerhub for convenience.  
   
