@@ -1,43 +1,50 @@
+---
 name: Publish Docker image
 
 on:
   workflow_dispatch:
   schedule:
-    - cron:  '0 8,16 * * *'
-
+    - cron: '0 8,16 * * *'
 jobs:
   push_last_tag_to_registry:
     name: Push Last Tagged to Docker Hub
-    run-on: ubuntu-latest
+    runs-on: ubuntu-latest
     steps:
       - name: Check out the repo
         uses: actions/checkout@v3
         with:
           repository: 'the-djmaze/snappymail'
-      - name: Checkout lates tag
+          path: source
+      - name: Checkout latest tag and set git_ref output
+        id: latest_tag
         run: |
+          cd source
           git fetch --tags
           LATEST_TAG=$(git describe --tags `git rev-list --tags --max-count=1`)
-          git checkout $LATEST_TAG
-          echo $LATEST_TAG
-
+          echo "::set-output name=git_ref::tags/${LATEST_TAG}"
+          echo "::set-output name=version::${LATEST_TAG}"
+      - name: Check out the repo
+        uses: actions/checkout@v3
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@v2
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
-
       - name: Extract metadata (tags, labels) for Docker
         id: meta
         uses: docker/metadata-action@v4
         with:
           images: xgbstar1/snappymail-docker
-
+          tags: ${{ steps.latest_tag.outputs.version }}
       - name: Build and push Docker image
         uses: docker/build-push-action@v3
         with:
           context: .
           push: true
+          file: Dockerfile.fromtag
+          build-args: |
+            "GIT_REF=${{ steps.latest_tag.outputs.git_ref }}"
+            "VERSION=${{ steps.latest_tag.outputs.version }}"
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
   push_latest_to_registry:
@@ -45,23 +52,24 @@ jobs:
     steps:
       - name: Check out the repo
         uses: actions/checkout@v3
-      
       - name: Log in to Docker Hub
         uses: docker/login-action@v2
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
-      
       - name: Extract metadata (tags, labels) for Docker
         id: meta
         uses: docker/metadata-action@v4
         with:
           images: xgbstar1/snappymail-docker
-      
+          tags: main
       - name: Build and push Docker image
         uses: docker/build-push-action@v3
         with:
           context: .
           push: true
+          file: Dockerfile.fromsource
+          build-args: |
+            "GIT_REF=heads/master"
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

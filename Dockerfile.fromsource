@@ -1,25 +1,22 @@
 ARG HOST
 
-FROM node AS builder
-WORKDIR /source/snappymail-master
+FROM node AS base
 RUN npm install -g gulp
-RUN apt-get update && apt-get install -y php7.4 && apt-get install -y php7.4-zip
-# Optional: clone the repo...
-#RUN git clone https://github.com/the-djmaze/snappymail.git /source
-RUN apt-get install -y zip unzip
-RUN curl -o /source/master.zip -L https://github.com/the-djmaze/snappymail/archive/refs/heads/master.zip && \
+RUN apt-get update && apt-get install -y php7.4 zip unzip php7.4-zip
+
+FROM base AS builder
+WORKDIR /source/snappymail-master
+ARG GIT_REF
+RUN echo "GIT_REF is ${GIT_REF}"
+RUN curl -o /source/master.zip -L https://github.com/the-djmaze/snappymail/archive/refs/${GIT_REF}.zip && \
 	unzip /source/master.zip -d /source/
 RUN yarn install 
-RUN sed -i 's_^if.*rename.*snappymail.v.0.0.0.*$_if (!!system("mv snappymail/v/0.0.0 snappymail/v/{$package->version}")) {_' release.php 
+RUN sed -i 's_^if.*rename.*snappymail.v.0.0.0.*$_if (!!system("mv snappymail/v/0.0.0 snappymail/v/{$package->version}")) {_' release.php  || true
 RUN php release.php
 RUN ls /source/snappymail-master/build/dist/releases/webmail/ > /version
 RUN export VERSION=$(cat /version) && echo $VERSION && cp /source/snappymail-master/build/dist/releases/webmail/$VERSION/snappymail-$VERSION.zip /build-stage-artifact
 
 FROM php:7.4-apache
-
-
-RUN apt-get update && \
-apt-get install -y unzip wget
 
 COPY ./snappymail.conf /etc/apache2/sites-available/snappymail.conf
 COPY ./mail.example.com.pem /etc/certs/mail.example.com.pem
@@ -27,7 +24,7 @@ COPY --from=builder /version /version
 COPY --from=builder /build-stage-artifact /build-stage-artifact
 RUN export VERSION=$(cat /version) && echo $VERSION && cp /build-stage-artifact /snappymail-$VERSION.zip
 
-RUN unzip -o /snappymail*zip -d /var/www/snappymail
+RUN apt-get update && apt-get install -y unzip && unzip -o /snappymail*zip -d /var/www/snappymail
 
 # Optional: add CSS customizations
 # COPY css-customizations/customizations.css  /tmp/customizations.css
