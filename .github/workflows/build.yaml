@@ -41,10 +41,9 @@ jobs:
         with:
           context: .
           push: true
-          file: Dockerfile.fromtag
+          file: Dockerfile
           build-args: |
             "GIT_REF=${{ steps.latest_tag.outputs.git_ref }}"
-            "VERSION=${{ steps.latest_tag.outputs.version }}"
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
   push_latest_to_registry:
@@ -68,7 +67,7 @@ jobs:
         with:
           context: .
           push: true
-          file: Dockerfile.fromsource
+          file: Dockerfile
           build-args: |
             "GIT_REF=heads/master"
           tags: ${{ steps.meta.outputs.tags }}
