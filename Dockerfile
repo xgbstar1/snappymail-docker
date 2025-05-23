@@ -2,7 +2,8 @@ ARG HOST
 
 FROM node AS base
 RUN npm install -g gulp
-RUN apt-get update && apt-get install -y php7.4 zip unzip php7.4-zip
+# Install PHP 8.2 instead of 7.4 (or add PHP 7.4 repository if specifically needed)
+RUN apt-get update && apt-get install -y php php-zip zip unzip
 
 FROM base AS builder
 ARG GIT_REF
@@ -31,7 +32,6 @@ RUN apt-get update && apt-get install -y unzip && unzip -o /snappymail*zip -d /v
 # RUN export VERSION=$(cat /version) && ls -R /var/www/snappymail/snappymail/ && cat /tmp/customizations.css >> /var/www/snappymail/snappymail/v/$VERSION/static/css/app.min.css
 
 RUN chown www-data:www-data /var/www/snappymail/ -R
-
 
 RUN a2ensite snappymail.conf
 
