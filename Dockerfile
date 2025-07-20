@@ -23,60 +23,66 @@ RUN echo "=== DOWNLOADING SOURCE ===" && \
     unzip /source/master.zip -d /source/ && \
     echo "Download complete"
 
-# Debug: Show what we have
-RUN if [ "$DEBUG" = "true" ]; then \
-        echo "=== SOURCE STRUCTURE ===" && \
-        ls -la /source/ && \
-        cd /source/*/ && ls -la; \
-    fi
-
-# Install dependencies and build
+# Install dependencies
 RUN echo "=== INSTALLING DEPENDENCIES ===" && \
     cd /source/*/ && \
     yarn install && \
     echo "Dependencies installed"
 
-# Apply the cross-device link fix (improved version)
-RUN echo "=== APPLYING RELEASE.PHP FIX ===" && \
+# Fix the release.php rename issue by replacing the problematic rename() calls
+RUN echo "=== FIXING RELEASE.PHP ===" && \
     cd /source/*/ && \
-    sed -i 's_^if.*rename.*snappymail.v.0.0.0.*$_if (!!system("cp -r snappymail/v/0.0.0 snappymail/v/{$package->version} && rm -rf snappymail/v/0.0.0")) {_' release.php || true && \
-    echo "Fix applied"
+    cp cli/release.php cli/release.php.backup && \
+    \
+    # Replace the rename function with a copy+remove approach
+    sed -i 's/if (!rename.*snappymail\/v\/0\.0\.0.*snappymail\/v\/{\$package->version}.*/if (!is_dir("snappymail\/v\/{\$package->version}")) { exec("cp -r snappymail\/v\/0.0.0 snappymail\/v\/{\$package->version}"); exec("rm -rf snappymail\/v\/0.0.0"); }/' cli/release.php && \
+    \
+    # Also fix the shutdown function that renames it back
+    sed -i 's/@rename.*snappymail\/v\/{\$GLOBALS.*package.*->version.*snappymail\/v\/0\.0\.0.*/if (is_dir("snappymail\/v\/{\$GLOBALS['\''package'\'']->version}")) { exec("cp -r snappymail\/v\/{\$GLOBALS['\''package'\'']->version} snappymail\/v\/0.0.0"); exec("rm -rf snappymail\/v\/{\$GLOBALS['\''package'\'']->version}"); }/' cli/release.php && \
+    \
+    # Fix the final rename at the end of the script
+    sed -i 's/rename.*snappymail\/v\/{\$package->version}.*snappymail\/v\/0\.0\.0.*/if (is_dir("snappymail\/v\/{\$package->version}")) { exec("cp -r snappymail\/v\/{\$package->version} snappymail\/v\/0.0.0"); exec("rm -rf snappymail\/v\/{\$package->version}"); }/' cli/release.php && \
+    \
+    echo "Release.php fixes applied"
+
+# Debug: Show the changes if debug is enabled
+RUN if [ "$DEBUG" = "true" ]; then \
+        echo "=== RELEASE.PHP CHANGES ===" && \
+        cd /source/*/ && \
+        diff -u cli/release.php.backup cli/release.php || true; \
+    fi
 
 # Run the release build
 RUN echo "=== BUILDING RELEASE ===" && \
     cd /source/*/ && \
-    php release.php && \
+    php cli/release.php && \
     echo "Release build complete"
 
 # Debug: Check what was built
 RUN if [ "$DEBUG" = "true" ]; then \
         echo "=== BUILD RESULTS ===" && \
         cd /source/*/ && \
-        find . -name "*.zip" -o -name "*.tar.gz" | head -10 && \
-        ls -la build/dist/releases/webmail/ || echo "No webmail releases found"; \
+        find build/dist/releases/webmail/ -name "*.zip" -o -name "*.tar.gz" | head -10 && \
+        ls -la build/dist/releases/webmail/*/; \
     fi
 
 # Extract version and copy artifact
 RUN echo "=== EXTRACTING RELEASE ARTIFACT ===" && \
     cd /source/*/ && \
-    if [ -d "build/dist/releases/webmail" ]; then \
-        ls build/dist/releases/webmail/ > /version && \
-        VERSION=$(cat /version) && \
-        echo "Found version: $VERSION" && \
-        if [ -f "build/dist/releases/webmail/$VERSION/snappymail-$VERSION.zip" ]; then \
-            cp "build/dist/releases/webmail/$VERSION/snappymail-$VERSION.zip" /build-stage-artifact && \
-            echo "Copied zip artifact"; \
-        elif [ -f "build/dist/releases/webmail/$VERSION/snappymail-$VERSION.tar.gz" ]; then \
-            cp "build/dist/releases/webmail/$VERSION/snappymail-$VERSION.tar.gz" /build-stage-artifact && \
-            echo "Copied tar.gz artifact"; \
-        else \
-            echo "ERROR: No release archive found for version $VERSION" && \
-            ls -la "build/dist/releases/webmail/$VERSION/" && \
-            exit 1; \
-        fi; \
+    VERSION=$(ls build/dist/releases/webmail/ | head -1) && \
+    echo "$VERSION" > /version && \
+    echo "Found version: $VERSION" && \
+    \
+    # Copy the zip file (preferred) or tar.gz
+    if [ -f "build/dist/releases/webmail/$VERSION/snappymail-$VERSION.zip" ]; then \
+        cp "build/dist/releases/webmail/$VERSION/snappymail-$VERSION.zip" /build-stage-artifact && \
+        echo "Copied zip artifact"; \
+    elif [ -f "build/dist/releases/webmail/$VERSION/snappymail-$VERSION.tar.gz" ]; then \
+        cp "build/dist/releases/webmail/$VERSION/snappymail-$VERSION.tar.gz" /build-stage-artifact && \
+        echo "Copied tar.gz artifact"; \
     else \
-        echo "ERROR: No webmail releases directory found" && \
-        find . -name "*snappymail*" -type f | head -10 && \
+        echo "ERROR: No release archive found" && \
+        ls -la "build/dist/releases/webmail/$VERSION/" && \
         exit 1; \
     fi
 
@@ -92,6 +98,7 @@ RUN apt-get update && apt-get install -y \
         libpng-dev \
         libzip-dev \
         unzip \
+        curl \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install -j$(nproc) gd zip pdo_mysql opcache \
     && rm -rf /var/lib/apt/lists/*
