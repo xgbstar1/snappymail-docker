@@ -29,33 +29,173 @@ RUN echo "=== INSTALLING DEPENDENCIES ===" && \
     yarn install && \
     echo "Dependencies installed"
 
-# Fix the release.php rename issue by replacing the problematic rename() calls
-RUN echo "=== FIXING RELEASE.PHP ===" && \
+# Create a fixed version of release.php
+RUN echo "=== CREATING FIXED RELEASE.PHP ===" && \
     cd /source/*/ && \
     cp cli/release.php cli/release.php.backup && \
-    \
-    # Replace the rename function with a copy+remove approach
-    sed -i 's/if (!rename.*snappymail\/v\/0\.0\.0.*snappymail\/v\/{\$package->version}.*/if (!is_dir("snappymail\/v\/{\$package->version}")) { exec("cp -r snappymail\/v\/0.0.0 snappymail\/v\/{\$package->version}"); exec("rm -rf snappymail\/v\/0.0.0"); }/' cli/release.php && \
-    \
-    # Also fix the shutdown function that renames it back
-    sed -i 's/@rename.*snappymail\/v\/{\$GLOBALS.*package.*->version.*snappymail\/v\/0\.0\.0.*/if (is_dir("snappymail\/v\/{\$GLOBALS['\''package'\'']->version}")) { exec("cp -r snappymail\/v\/{\$GLOBALS['\''package'\'']->version} snappymail\/v\/0.0.0"); exec("rm -rf snappymail\/v\/{\$GLOBALS['\''package'\'']->version}"); }/' cli/release.php && \
-    \
-    # Fix the final rename at the end of the script
-    sed -i 's/rename.*snappymail\/v\/{\$package->version}.*snappymail\/v\/0\.0\.0.*/if (is_dir("snappymail\/v\/{\$package->version}")) { exec("cp -r snappymail\/v\/{\$package->version} snappymail\/v\/0.0.0"); exec("rm -rf snappymail\/v\/{\$package->version}"); }/' cli/release.php && \
-    \
-    echo "Release.php fixes applied"
+    cat > cli/release_fixed.php << 'EOF'
+#!/usr/bin/php
+<?php
+define('ROOT_DIR', dirname(__DIR__));
+chdir(ROOT_DIR);
 
-# Debug: Show the changes if debug is enabled
+$options = getopt('', ['aur','docker','plugins','skip-gulp','debian','nextcloud','owncloud','cpanel','sign']);
+
+if (isset($options['plugins'])) {
+	require(ROOT_DIR . '/build/plugins.php');
+}
+
+$gulp = trim(`which gulp`);
+if (!$gulp) {
+	exit('gulp not installed, run as root: npm install --global gulp-cli');
+}
+
+$package = json_decode(file_get_contents('package.json'));
+
+$destPath = "build/dist/releases/webmail/{$package->version}/";
+is_dir($destPath) || mkdir($destPath, 0777, true);
+
+$zip_destination = "{$destPath}snappymail-{$package->version}.zip";
+$tar_destination = "{$destPath}snappymail-{$package->version}.tar";
+
+@unlink($zip_destination);
+@unlink($tar_destination);
+@unlink("{$tar_destination}.gz");
+
+if (!isset($options['skip-gulp'])) {
+	echo "\x1b[33;1m === Gulp === \x1b[0m\n";
+	passthru($gulp, $return_var);
+	if ($return_var) {
+		exit("gulp failed with error code {$return_var}\n");
+	}
+
+	$cmddir = escapeshellcmd(ROOT_DIR) . '/snappymail/v/0.0.0/static';
+
+	if ($gzip = trim(`which gzip`)) {
+		echo "\x1b[33;1m === Gzip *.js and *.css === \x1b[0m\n";
+		passthru("{$gzip} -k --best {$cmddir}/js/*.js");
+		passthru("{$gzip} -k --best {$cmddir}/js/min/*.js");
+		passthru("{$gzip} -k --best {$cmddir}/css/admin*.css");
+		passthru("{$gzip} -k --best {$cmddir}/css/app*.css");
+		unlink(ROOT_DIR . '/snappymail/v/0.0.0/static/js/boot.js.gz');
+		unlink(ROOT_DIR . '/snappymail/v/0.0.0/static/js/min/boot.min.js.gz');
+	}
+
+	if ($brotli = trim(`which brotli`)) {
+		echo "\x1b[33;1m === Brotli *.js and *.css === \x1b[0m\n";
+		passthru("{$brotli} -k --best {$cmddir}/js/*.js");
+		passthru("{$brotli} -k --best {$cmddir}/js/min/*.js");
+		passthru("{$brotli} -k --best {$cmddir}/css/admin*.css");
+		passthru("{$brotli} -k --best {$cmddir}/css/app*.css");
+		unlink(ROOT_DIR . '/snappymail/v/0.0.0/static/js/boot.js.br');
+		unlink(ROOT_DIR . '/snappymail/v/0.0.0/static/js/min/boot.min.js.br');
+	}
+}
+
+// Fixed version directory handling - use copy instead of rename
+if (is_dir('snappymail/v/0.0.0') && !is_dir("snappymail/v/{$package->version}")) {
+	echo "Creating version directory: snappymail/v/{$package->version}\n";
+	exec("cp -r snappymail/v/0.0.0 snappymail/v/{$package->version}");
+}
+
+echo "\x1b[33;1m === Zip/Tar === \x1b[0m\n";
+
+$zip = new ZipArchive();
+if (!$zip->open($zip_destination, ZIPARCHIVE::CREATE)) {
+	exit("Failed to create {$zip_destination}");
+}
+
+$tar = new PharData($tar_destination);
+
+$files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator('snappymail/v'), RecursiveIteratorIterator::SELF_FIRST);
+foreach ($files as $file) {
+	$file = str_replace('\\', '/', $file);
+	if (!in_array(substr($file, strrpos($file, '/')+1), array('.', '..'))) {
+		if (is_dir($file)) {
+			$zip->addEmptyDir($file);
+		} else if (is_file($file)) {
+			$zip->addFile($file);
+		}
+	}
+}
+
+if ($options['docker']) {
+	$tar->buildFromDirectory('./snappymail/', "@v/{$package->version}@");
+} else {
+	$tar->buildFromDirectory('./', "@snappymail/v/{$package->version}@");
+}
+
+$zip->addFile('data/.htaccess');
+$tar->addFile('data/.htaccess');
+
+$zip->addFromString('data/VERSION', $package->version);
+$tar->addFromString('data/VERSION', $package->version);
+
+$zip->addFile('data/README.md');
+$tar->addFile('data/README.md');
+
+if ($options['aur']) {
+	$data = '<?php
+function __get_custom_data_full_path()
+{
+	return \'/var/lib/snappymail\';
+}
+';
+	$zip->addFromString('include.php', $data);
+	$tar->addFromString('include.php', $data);
+} else {
+	$zip->addFile('_include.php');
+	$tar->addFile('_include.php');
+}
+
+$zip->addFile('.htaccess');
+$tar->addFile('.htaccess');
+
+$index = file_get_contents('index.php');
+$index = str_replace('0.0.0', $package->version, $index);
+$zip->addFromString('index.php', $index);
+$tar->addFromString('index.php', $index);
+
+$zip->addFile('README.md');
+$tar->addFile('README.md');
+
+$zip->close();
+
+$tar->compress(Phar::GZ);
+unlink($tar_destination);
+$tar_destination .= '.gz';
+
+echo "{$zip_destination} created\n{$tar_destination} created\n";
+
+// Clean up - restore original structure
+if (is_dir("snappymail/v/{$package->version}") && !is_dir('snappymail/v/0.0.0')) {
+	echo "Restoring original directory structure\n";
+	exec("cp -r snappymail/v/{$package->version} snappymail/v/0.0.0");
+}
+
+file_put_contents("{$destPath}core.json", '{
+	"version": "'.$package->version.'",
+	"file": "../latest.tar.gz",
+	"warnings": []
+}');
+
+echo "Release build completed successfully!\n";
+EOF
+    chmod +x cli/release_fixed.php && \
+    echo "Fixed release.php created"
+
+# Debug: Show the differences if debug is enabled
 RUN if [ "$DEBUG" = "true" ]; then \
-        echo "=== RELEASE.PHP CHANGES ===" && \
+        echo "=== USING FIXED RELEASE SCRIPT ===" && \
         cd /source/*/ && \
-        diff -u cli/release.php.backup cli/release.php || true; \
+        echo "Original problematic lines:" && \
+        grep -n "rename" cli/release.php.backup || true; \
     fi
 
-# Run the release build
+# Run the fixed release build
 RUN echo "=== BUILDING RELEASE ===" && \
     cd /source/*/ && \
-    php cli/release.php && \
+    php cli/release_fixed.php && \
     echo "Release build complete"
 
 # Debug: Check what was built
