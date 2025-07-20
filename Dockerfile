@@ -33,7 +33,7 @@ RUN echo "=== INSTALLING DEPENDENCIES ===" && \
 RUN echo "=== CREATING FIXED RELEASE.PHP ===" && \
     cd /source/*/ && \
     cp cli/release.php cli/release.php.backup && \
-    cat > cli/release_fixed.php << 'EOF'
+    cat > cli/release_fixed.php << 'EOF' && \
 #!/usr/bin/php
 <?php
 define('ROOT_DIR', dirname(__DIR__));
