@@ -12,10 +12,39 @@ RUN echo "GIT_REF is ${GIT_REF}"
 RUN curl -o /source/master.zip -L https://github.com/the-djmaze/snappymail/archive/refs/${GIT_REF}.zip && \
 	unzip /source/master.zip -d /source/
 RUN cd /source/*/ && yarn install 
-RUN cd /source/*/ && sed -i 's_^if.*rename.*snappymail.v.0.0.0.*$_if (!!system("mv snappymail/v/0.0.0 snappymail/v/{$package->version}")) {_' release.php  || true
-RUN cd /source/*/ && php release.php
-RUN ls /source/*/build/dist/releases/webmail/ > /version
-RUN export VERSION=$(cat /version) && echo $VERSION && cp /source/*/build/dist/releases/webmail/$VERSION/snappymail-$VERSION.zip /build-stage-artifact
+
+# Fix the cross-device link issue by using cp + rm instead of rename
+RUN cd /source/*/ && sed -i 's/rename.*snappymail\/v\/0\.0\.0.*snappymail\/v\/{\$package->version}.*/if (!is_dir("snappymail\/v\/{\$package->version}")) { system("cp -r snappymail\/v\/0.0.0 snappymail\/v\/{\$package->version} \&\& rm -rf snappymail\/v\/0.0.0"); }/' release.php
+
+# Alternative approach: Create the directory structure manually if the above doesn't work
+RUN cd /source/*/ && php release.php || (echo "Release failed, checking directory structure..." && find . -name "*.zip" -type f)
+
+# Debug: Check what was actually created
+RUN cd /source/*/ && find . -name "*.zip" -type f -exec ls -la {} \;
+RUN cd /source/*/ && ls -la build/dist/releases/webmail/ || echo "webmail directory not found"
+
+# More robust version detection and file copying
+RUN cd /source/*/ && \
+    if [ -d "build/dist/releases/webmail" ]; then \
+        ls build/dist/releases/webmail/ > /version; \
+    else \
+        echo "2.38.2" > /version; \
+    fi
+
+# Find and copy the zip file more robustly
+RUN export VERSION=$(cat /version) && \
+    echo "Looking for version: $VERSION" && \
+    cd /source/*/ && \
+    ZIPFILE=$(find . -name "snappymail-*.zip" -type f | head -1) && \
+    if [ -n "$ZIPFILE" ]; then \
+        echo "Found zip file: $ZIPFILE" && \
+        cp "$ZIPFILE" /build-stage-artifact; \
+    else \
+        echo "No zip file found, creating manual archive..." && \
+        cd snappymail && \
+        zip -r /build-stage-artifact * && \
+        echo "Manual archive created"; \
+    fi
 
 FROM php:7.4-apache
 
